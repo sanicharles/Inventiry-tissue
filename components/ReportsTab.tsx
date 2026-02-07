@@ -3,7 +3,6 @@ import React, { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import * as XLSX from 'xlsx';
 import { InventoryRecord } from '../types';
-import { SupabaseService } from '../services/supabaseService';
 import { INITIAL_RECORDS } from '../constants';
 
 interface ReportsTabProps {
@@ -17,8 +16,6 @@ type ViewMode = 'daily' | 'weekly' | 'monthly';
 export const ReportsTab: React.FC<ReportsTabProps> = ({ records, selectedDate, onDataSync }) => {
   const [viewMode, setViewMode] = useState<ViewMode>('daily');
   const [isExporting, setIsExporting] = useState(false);
-  const [syncIdInput, setSyncIdInput] = useState(SupabaseService.getSyncId());
-  const [isConnecting, setIsConnecting] = useState(false);
 
   const monthNames = [
     "Januari", "Februari", "Maret", "April", "Mei", "Juni",
@@ -31,55 +28,62 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ records, selectedDate, o
 
   const handleExportExcel = () => {
     setIsExporting(true);
-    try {
-      const exportData: any[] = [];
-      records.forEach(record => {
-        Object.entries(record.usage).forEach(([dateStr, val]) => {
-          const usageVal = val as number;
-          if (usageVal > 0) {
-            exportData.push({
-              'Tanggal': dateStr,
-              'Lantai': record.floor,
-              'Tipe Toilet': record.type,
-              'Jumlah (Roll)': usageVal
-            });
-          }
-        });
-      });
-      exportData.sort((a, b) => a.Tanggal.localeCompare(b.Tanggal));
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Usage Report");
-      const fileName = `Tissue_Report_${monthNames[month]}_${year}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
-    } catch (error) {
-      alert("Failed to export data.");
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleConnectSyncId = async () => {
-    if (!syncIdInput.trim()) return;
-    setIsConnecting(true);
-    SupabaseService.setSyncId(syncIdInput.trim());
     
-    if (SupabaseService.isConfigured()) {
-      const data = await SupabaseService.pullData();
-      if (data && onDataSync) {
-        onDataSync(data);
-        alert("Terhubung ke cloud! Data diperbarui.");
-      } else {
-        alert("Sync ID disimpan. Siap melakukan sinkronisasi baru.");
+    // Slight delay to allow UI to show loading state
+    setTimeout(() => {
+      try {
+        const exportData: any[] = [];
+        records.forEach(record => {
+          Object.entries(record.usage).forEach(([dateStr, val]) => {
+            const usageVal = val as number;
+            if (usageVal > 0) {
+              const dateObj = new Date(dateStr);
+              exportData.push({
+                'Tanggal': dateStr,
+                'Hari': dateObj.getDate(),
+                'Bulan': monthNames[dateObj.getMonth()],
+                'Tahun': dateObj.getFullYear(),
+                'Lantai': record.floor,
+                'Area (Toilet)': record.type,
+                'Jumlah (Roll)': usageVal
+              });
+            }
+          });
+        });
+
+        if (exportData.length === 0) {
+          alert("Tidak ada data untuk diekspor.");
+          setIsExporting(false);
+          return;
+        }
+
+        // Sort by date ascending
+        exportData.sort((a, b) => a.Tanggal.localeCompare(b.Tanggal));
+        
+        const worksheet = XLSX.utils.json_to_sheet(exportData);
+        
+        // Adjust column widths
+        const wscols = [
+          {wch: 15}, {wch: 5}, {wch: 12}, {wch: 8}, {wch: 8}, {wch: 20}, {wch: 12}
+        ];
+        worksheet['!cols'] = wscols;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Penggunaan");
+        
+        const fileName = `Laporan_Tissue_${monthNames[month]}_${year}.xlsx`;
+        XLSX.writeFile(workbook, fileName);
+      } catch (error) {
+        console.error(error);
+        alert("Gagal mengekspor data ke Excel.");
+      } finally {
+        setIsExporting(false);
       }
-    } else {
-      alert("Sync ID disimpan secara lokal. Masukkan Supabase keys untuk menghubungkan ke Cloud.");
-    }
-    setIsConnecting(false);
+    }, 500);
   };
 
   const handleReset = () => {
-    if (window.confirm("Hapus semua data lokal dan reset ke awal?")) {
+    if (window.confirm("PERINGATAN: Ini akan menghapus semua data penggunaan secara permanen. Lanjutkan?")) {
       localStorage.removeItem('tissue_inventory_v2');
       if (onDataSync) onDataSync(INITIAL_RECORDS);
       window.location.reload();
@@ -103,11 +107,11 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ records, selectedDate, o
 
   const weeklyData = useMemo(() => {
     const weeks = [
-      { name: 'W1', range: [1, 7], total: 0 },
-      { name: 'W2', range: [8, 14], total: 0 },
-      { name: 'W3', range: [15, 21], total: 0 },
-      { name: 'W4', range: [22, 28], total: 0 },
-      { name: 'W5', range: [29, 31], total: 0 },
+      { name: 'M1', range: [1, 7], total: 0 },
+      { name: 'M2', range: [8, 14], total: 0 },
+      { name: 'M3', range: [15, 21], total: 0 },
+      { name: 'M4', range: [22, 28], total: 0 },
+      { name: 'M5', range: [29, 31], total: 0 },
     ];
     weeks.forEach(w => {
       for (let i = w.range[0]; i <= Math.min(w.range[1], daysInMonth); i++) {
@@ -140,115 +144,134 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ records, selectedDate, o
   return (
     <div className="space-y-6 animate-fadeIn pb-10">
       {/* Summary Card */}
-      <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-blue-700 p-6 rounded-3xl text-white shadow-xl shadow-blue-100/50">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <p className="text-blue-100 text-xs font-semibold uppercase tracking-wider">Total Konsumsi {monthNames[month]}</p>
-            <h2 className="text-4xl font-black mt-1 tracking-tight">{totalUsage} <span className="text-sm font-normal opacity-70">Rolls</span></h2>
-          </div>
-          <button onClick={handleExportExcel} disabled={isExporting} className="bg-white/20 p-2.5 rounded-2xl backdrop-blur-sm active:scale-90 transition-transform">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-          </button>
+      <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-6 rounded-[32px] text-white shadow-xl shadow-blue-100">
+        <p className="text-blue-100 text-xs font-black uppercase tracking-widest mb-1">Total Konsumsi {monthNames[month]}</p>
+        <div className="flex items-end gap-2">
+          <h2 className="text-5xl font-black tracking-tighter">{totalUsage}</h2>
+          <span className="text-sm font-bold opacity-80 mb-2 uppercase">Rolls</span>
         </div>
-        <p className="text-[10px] text-blue-100 font-bold">Laporan bulanan dapat diunduh ke format Excel.</p>
+        <div className="mt-6 flex items-center gap-2 bg-white/10 w-fit px-3 py-1.5 rounded-full backdrop-blur-md">
+          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+          <span className="text-[10px] font-bold uppercase tracking-wide">Data Ter-update (Lokal)</span>
+        </div>
       </div>
 
-      {/* Supabase Sync Settings */}
-      <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-          </div>
-          <div>
-            <h3 className="text-sm font-black text-gray-800">Sinkronisasi Cloud</h3>
-            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tight">Status: {SupabaseService.isConfigured() ? 'Cloud Ready' : 'Local Only'}</p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            value={syncIdInput} 
-            onChange={(e) => setSyncIdInput(e.target.value.toUpperCase())}
-            className="flex-1 bg-gray-50 border border-gray-100 rounded-xl px-4 text-sm font-bold text-gray-800 focus:outline-none focus:border-blue-400" 
-            placeholder="ID-SINKRONISASI"
-          />
-          <button 
-            onClick={handleConnectSyncId} 
-            disabled={isConnecting}
-            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all disabled:opacity-50"
-          >
-            {isConnecting ? '...' : 'Tautkan'}
-          </button>
-        </div>
-        <button 
-          onClick={handleReset}
-          className="w-full text-center text-[10px] text-red-400 font-bold uppercase tracking-widest hover:text-red-600 py-1"
-        >
-          Hapus Data & Reset Cache
-        </button>
-      </div>
-
+      {/* View Switcher */}
       <div className="bg-gray-200/50 p-1 rounded-2xl flex gap-1">
         {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
-          <button key={mode} onClick={() => setViewMode(mode)} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${viewMode === mode ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+          <button 
+            key={mode} 
+            onClick={() => setViewMode(mode)} 
+            className={`flex-1 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all ${
+              viewMode === mode ? 'bg-white text-blue-600 shadow-sm scale-[1.02]' : 'text-gray-500'
+            }`}
+          >
             {mode === 'daily' ? 'Harian' : mode === 'weekly' ? 'Mingguan' : 'Lantai'}
           </button>
         ))}
       </div>
 
-      <div className="space-y-4">
+      {/* Chart Section */}
+      <div className="min-h-[280px]">
         {viewMode === 'daily' && (
-          <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm animate-fadeIn">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Heatmap Harian</h3>
-            <div className="grid grid-cols-7 gap-1">
-              {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(l => (
-                <div key={l} className="text-[10px] text-center font-bold text-gray-300 py-1 uppercase">{l}</div>
+          <div className="bg-white p-5 rounded-[32px] border border-gray-100 shadow-sm animate-fadeIn">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Aktivitas Harian</h3>
+            <div className="grid grid-cols-7 gap-1.5">
+              {['M', 'S', 'S', 'R', 'K', 'J', 'S'].map((l, i) => (
+                <div key={i} className="text-[9px] text-center font-black text-gray-300 py-1 uppercase">{l}</div>
               ))}
-              {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => <div key={i} />)}
+              {Array.from({ length: new Date(year, month, 1).getDay() }).map((_, i) => <div key={`empty-${i}`} />)}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
                 const usage = dailyTotals[day] || 0;
-                const intensity = usage === 0 ? 'bg-gray-50' : usage < 5 ? 'bg-blue-100' : usage < 15 ? 'bg-blue-300' : 'bg-blue-600 text-white';
+                const intensity = usage === 0 ? 'bg-gray-50 text-gray-300' : usage < 5 ? 'bg-blue-50 text-blue-400' : usage < 15 ? 'bg-blue-200 text-blue-700' : 'bg-blue-600 text-white';
                 return (
-                  <div key={day} className={`aspect-square rounded-lg flex flex-col items-center justify-center border border-white/50 text-[10px] font-bold ${intensity}`}>
-                    <span className="opacity-60">{day}</span>
-                    {usage > 0 && <span>{usage}</span>}
+                  <div key={day} className={`aspect-square rounded-xl flex flex-col items-center justify-center border border-white/50 text-[10px] font-black transition-colors ${intensity}`}>
+                    <span className="opacity-40 text-[8px]">{day}</span>
+                    {usage > 0 && <span className="mt-[-2px]">{usage}</span>}
                   </div>
                 );
               })}
             </div>
           </div>
         )}
+        
         {viewMode === 'weekly' && (
-          <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm animate-slideUp">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Konsumsi Mingguan</h3>
-            <div className="h-64">
+          <div className="bg-white p-5 rounded-[32px] border border-gray-100 shadow-sm animate-slideUp">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Tren Mingguan</h3>
+            <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <Bar dataKey="total" radius={[8, 8, 0, 0]} fill="#6366f1" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#cbd5e1' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#cbd5e1' }} />
+                  <Bar dataKey="total" radius={[8, 8, 8, 8]} fill="#4f46e5" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
+
         {viewMode === 'monthly' && (
-          <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-sm animate-slideUp">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Ringkasan Lantai</h3>
-            <div className="h-64">
+          <div className="bg-white p-5 rounded-[32px] border border-gray-100 shadow-sm animate-slideUp">
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Penggunaan per Lantai</h3>
+            <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={floorData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-                  <Bar dataKey="total" radius={[6, 6, 0, 0]} fill="#3b82f6" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#cbd5e1' }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 900, fill: '#cbd5e1' }} />
+                  <Bar dataKey="total" radius={[8, 8, 8, 8]} fill="#3b82f6" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         )}
+      </div>
+
+      {/* Data Management Section */}
+      <div className="bg-white p-6 rounded-[32px] border border-gray-100 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-sm font-black text-gray-800">Manajemen Data</h3>
+          <p className="text-[11px] text-gray-400 font-medium">Ekspor laporan atau bersihkan database lokal.</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3">
+          <button 
+            onClick={handleExportExcel} 
+            disabled={isExporting}
+            className={`w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all active:scale-95 ${
+              isExporting 
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+              : 'bg-green-600 text-white shadow-lg shadow-green-100'
+            }`}
+          >
+            {isExporting ? (
+              <div className="w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            )}
+            {isExporting ? 'Memproses...' : 'Unduh Laporan Excel'}
+          </button>
+
+          <button 
+            onClick={handleReset}
+            className="w-full flex items-center justify-center gap-2 py-3 text-red-400 text-[10px] font-black uppercase tracking-widest hover:text-red-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            </svg>
+            Hapus Database Lokal
+          </button>
+        </div>
+      </div>
+      
+      <div className="px-4 text-center">
+        <p className="text-[9px] text-gray-300 font-bold uppercase tracking-tighter italic">
+          v2.0 • Data disimpan secara aman di penyimpanan internal browser Anda.
+        </p>
       </div>
     </div>
   );

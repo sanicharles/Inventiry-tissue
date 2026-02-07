@@ -9,10 +9,9 @@ interface LayoutProps {
   selectedDate: Date;
   onDateChange: (date: Date) => void;
   records: InventoryRecord[];
-  syncStatus?: 'synced' | 'syncing' | 'error' | 'idle';
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, selectedDate, onDateChange, records, syncStatus = 'idle' }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange, selectedDate, onDateChange, records }) => {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [viewingDate, setViewingDate] = useState(new Date(selectedDate));
 
@@ -29,15 +28,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
   const changeMonth = (offset: number) => {
     const newDate = new Date(viewingDate.getFullYear(), viewingDate.getMonth() + offset, 1);
     setViewingDate(newDate);
-  };
-
-  const getSyncIcon = () => {
-    switch(syncStatus) {
-      case 'syncing': return <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>;
-      case 'synced': return <div className="w-2 h-2 bg-green-500 rounded-full"></div>;
-      case 'error': return <div className="w-2 h-2 bg-red-500 rounded-full"></div>;
-      default: return <div className="w-2 h-2 bg-gray-300 rounded-full"></div>;
-    }
   };
 
   const renderCalendarOverlay = () => {
@@ -89,12 +79,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">T</div>
           <div>
             <h1 className="text-base font-black text-gray-800 leading-none">TissueRoll</h1>
-            <div className="flex items-center gap-1.5 mt-1">
-              {getSyncIcon()}
-              <span className="text-[9px] font-black text-gray-400 uppercase tracking-tighter">
-                {syncStatus === 'syncing' ? 'Cloud Syncing' : syncStatus === 'synced' ? 'Online' : 'Supabase Mode'}
-              </span>
-            </div>
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mt-1">Local Storage Mode</p>
           </div>
         </div>
         
