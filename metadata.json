@@ -1,0 +1,7 @@
+{
+  "name": "Tissue Inventory Manager",
+  "description": "A mobile-first inventory tracking application for tissue roll usage across multiple floors and toilet types, featuring AI-powered sheet scanning.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
